@@ -9,9 +9,10 @@ local SoundService = game:GetService("SoundService")
 local ContentProvider = game:GetService("ContentProvider")
 
 -- CONFIGURATION
-local SHRINE_FINAL_HEIGHT = 16 -- Adjust this number if it's still too low/high
+local SHRINE_FINAL_HEIGHT = 16 
 local SHRINE_DEPTH_START = -100
 local SHRINE_DISTANCE_BEHIND = 35
+local BLOOD_POOL_SIZE = 4000
 
 local originalSkillAnimId = 11365563255
 local newExpansionAnimId = 18459220516
@@ -32,7 +33,6 @@ task.spawn(function()
     if success and objects[1] then
         shrineCache = objects[1]
         shrineCache.Parent = workspace
-        -- Ghost load far away
         if shrineCache:IsA("Model") then 
             shrineCache:MoveTo(Vector3.new(0, -5000, 0)) 
         else
@@ -40,9 +40,9 @@ task.spawn(function()
         end
         
         ContentProvider:PreloadAsync({expansionAnim, shrineCache})
-        print("✔️ [Domain Expansion]: Assets cached. Height set to: " .. SHRINE_FINAL_HEIGHT)
+        print("✔️ [Domain Expansion]: Assets cached and Ghost-Loaded.")
     else
-        warn("❌ [Domain Expansion]: Failed to Ghost-Load. Check Asset ID or Permissions. Error: " .. tostring(objects))
+        warn("❌ [Domain Expansion]: Failed to Ghost-Load. Reason: " .. tostring(objects))
     end
 end)
 
@@ -86,10 +86,9 @@ local function applyInstantLighting()
 end
 
 local function triggerDomain(animLength, customTrack)
-    if domainTriggered then return end
-    if not shrineCache then
-        warn("❌ [Domain Expansion]: Attempt failed. Shrine not in cache. Try again in 2 seconds.")
-        return
+    if domainTriggered or not shrineCache then 
+        if not shrineCache then warn("❌ [Domain Expansion]: Shrine not loaded yet.") end
+        return 
     end
 
     domainTriggered = true
@@ -125,16 +124,18 @@ local function triggerDomain(animLength, customTrack)
         }):Play()
     end)
 
-    -- Visuals
+    -- Visuals: Blood Pool
     local bloodFloor = Instance.new("Part")
-    bloodFloor.Size = Vector3.new(4000, 1, 4000)
+    bloodFloor.Size = Vector3.new(BLOOD_POOL_SIZE, 1, BLOOD_POOL_SIZE)
     bloodFloor.Position = humanoidRootPart.Position + Vector3.new(0, -1, 0)
     bloodFloor.Anchored = true
+    bloodFloor.CanCollide = false
     bloodFloor.Color = Color3.fromRGB(30, 0, 0)
     bloodFloor.Material = Enum.Material.Ice
     bloodFloor.Parent = workspace
     table.insert(instancesToClean, bloodFloor)
 
+    -- Visuals: Shrine Logic
     local weldPart = Instance.new("Part")
     weldPart.Size = Vector3.new(1, 1, 1)
     weldPart.Transparency = 1
@@ -159,27 +160,35 @@ local function triggerDomain(animLength, customTrack)
             local weld = Instance.new("WeldConstraint", mainPart)
             weld.Part0 = mainPart; weld.Part1 = weldPart
             
-            -- Rising to the new Height (16)
             TweenService:Create(weldPart, TweenInfo.new(3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                 CFrame = humanoidRootPart.CFrame * CFrame.new(0, SHRINE_FINAL_HEIGHT, SHRINE_DISTANCE_BEHIND)
             }):Play()
         end
     end
 
-    -- CLEANUP
+    -- CLEANUP SEQUENCE
     task.delay(animLength, function()
         camera.CameraType = Enum.CameraType.Custom
         customTrack:Stop(1.5)
         
+        -- Tween Shrine Down
         if weldPart then
             TweenService:Create(weldPart, TweenInfo.new(3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
                 CFrame = humanoidRootPart.CFrame * CFrame.new(0, SHRINE_DEPTH_START, SHRINE_DISTANCE_BEHIND)
             }):Play()
         end
         
+        -- TWEEN BLOOD DOWN (Instead of disappearing)
+        if bloodFloor then
+            TweenService:Create(bloodFloor, TweenInfo.new(3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
+                Position = bloodFloor.Position + Vector3.new(0, -20, 0),
+                Transparency = 1
+            }):Play()
+        end
+        
         TweenService:Create(Lighting, TweenInfo.new(2.5), originalLighting):Play()
         
-        task.delay(3.1, function()
+        task.delay(3.2, function()
             for _, instance in ipairs(instancesToClean) do
                 if instance then instance:Destroy() end
             end
@@ -202,7 +211,7 @@ humanoid.AnimationPlayed:Connect(function(animationTrack)
             newTrack:Play()
             triggerDomain(originalLen, newTrack)
         else
-            warn("❌ [Domain Expansion]: Animation failed to load. Reason: " .. tostring(newTrack))
+            warn("❌ [Domain Expansion]: Animation Load Error: " .. tostring(newTrack))
         end
     end
 end)
