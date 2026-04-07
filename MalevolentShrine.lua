@@ -19,6 +19,7 @@ local newExpansionAnimId = 18459220516
 local blockedSoundId = "14762092682"
 local shrineAssetId = 16639433873
 local domainTriggered = false
+local assetsLoaded = false
 
 -- PRE-LOAD ASSETS
 local shrineCache = nil
@@ -32,17 +33,13 @@ task.spawn(function()
     
     if success and objects[1] then
         shrineCache = objects[1]
-        shrineCache.Parent = workspace
+        shrineCache.Name = "ShrineCache"
+        shrineCache.Parent = game:GetService("ReplicatedStorage")
         if shrineCache:IsA("Model") then 
-            shrineCache:MoveTo(Vector3.new(0, -5000, 0)) 
-        else
-            shrineCache.Position = Vector3.new(0, -5000, 0)
+            shrineCache:PivotTo(CFrame.new(0, -5000, 0)) 
         end
-        
         ContentProvider:PreloadAsync({expansionAnim, shrineCache})
-        print("✔️ [Domain Expansion]: Assets cached and Ghost-Loaded.")
-    else
-        warn("❌ [Domain Expansion]: Failed to Ghost-Load. Reason: " .. tostring(objects))
+        assetsLoaded = true
     end
 end)
 
@@ -86,62 +83,30 @@ local function applyInstantLighting()
 end
 
 local function triggerDomain(animLength, customTrack)
-    if domainTriggered or not shrineCache then 
-        if not shrineCache then warn("❌ [Domain Expansion]: Shrine not loaded yet.") end
-        return 
-    end
-
+    if domainTriggered or not shrineCache then return end
     domainTriggered = true
+    
+    -- 1. SOUND & LIGHTING
+    local voice = Instance.new("Sound")
+    voice.SoundId = "rbxassetid://6590147536"
+    voice.Parent = SoundService
+    voice.Volume = 10
+    voice:Play()
+    game:GetService("Debris"):AddItem(voice, 10)
+
     applyInstantLighting()
 
     local instancesToClean = {}
     local atmosphere = Lighting:FindFirstChild("DomainAtmosphere")
     if atmosphere then table.insert(instancesToClean, atmosphere) end
 
-    -- CAMERA: FACE POV
-    camera.CameraType = Enum.CameraType.Scriptable
-    local head = character:WaitForChild("Head")
-    camera.CFrame = head.CFrame * CFrame.new(0, 0.5, -9) * CFrame.Angles(0, math.pi, 0)
-
-    TweenService:Create(camera, TweenInfo.new(2.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        CFrame = head.CFrame * CFrame.new(0, 0.5, -5.5) * CFrame.Angles(0, math.pi, 0)
-    }):Play()
-
-    -- CAMERA: SNAP BEHIND
-    task.delay(2.8, function()
-        local voice = Instance.new("Sound")
-        voice.SoundId = "rbxassetid://6590147536"
-        voice.Parent = SoundService
-        voice.Volume = 10
-        voice:Play()
-        voice.Ended:Connect(function() voice:Destroy() end)
-        
-        local behindPos = humanoidRootPart.CFrame * CFrame.new(0, 6, 15) 
-        camera.CFrame = CFrame.new(behindPos.Position, humanoidRootPart.Position + (humanoidRootPart.CFrame.LookVector * 100))
-        
-        TweenService:Create(camera, TweenInfo.new(animLength - 2.8, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-            CFrame = camera.CFrame * CFrame.new(0, 2, 10)
-        }):Play()
-    end)
-
-    -- Visuals: Blood Pool
-    local bloodFloor = Instance.new("Part")
-    bloodFloor.Size = Vector3.new(BLOOD_POOL_SIZE, 1, BLOOD_POOL_SIZE)
-    bloodFloor.Position = humanoidRootPart.Position + Vector3.new(0, -1, 0)
-    bloodFloor.Anchored = true
-    bloodFloor.CanCollide = false
-    bloodFloor.Color = Color3.fromRGB(30, 0, 0)
-    bloodFloor.Material = Enum.Material.Ice
-    bloodFloor.Parent = workspace
-    table.insert(instancesToClean, bloodFloor)
-
-    -- Visuals: Shrine Logic
+    -- 2. SHRINE SPAWN & RISE
     local weldPart = Instance.new("Part")
     weldPart.Size = Vector3.new(1, 1, 1)
     weldPart.Transparency = 1
     weldPart.Anchored = true
-    weldPart.Parent = workspace
     weldPart.CFrame = humanoidRootPart.CFrame * CFrame.new(0, SHRINE_DEPTH_START, SHRINE_DISTANCE_BEHIND)
+    weldPart.Parent = workspace
     table.insert(instancesToClean, weldPart)
 
     local loadedObject = shrineCache:Clone()
@@ -159,26 +124,54 @@ local function triggerDomain(animLength, customTrack)
         if mainPart then
             local weld = Instance.new("WeldConstraint", mainPart)
             weld.Part0 = mainPart; weld.Part1 = weldPart
-            
-            TweenService:Create(weldPart, TweenInfo.new(3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                CFrame = humanoidRootPart.CFrame * CFrame.new(0, SHRINE_FINAL_HEIGHT, SHRINE_DISTANCE_BEHIND)
-            }):Play()
         end
+        
+        -- Start rise immediately to ensure it's there when camera snaps
+        TweenService:Create(weldPart, TweenInfo.new(4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+            CFrame = humanoidRootPart.CFrame * CFrame.new(0, SHRINE_FINAL_HEIGHT, SHRINE_DISTANCE_BEHIND)
+        }):Play()
     end
 
-    -- CLEANUP SEQUENCE
+    -- 3. BLOOD POOL
+    local bloodFloor = Instance.new("Part")
+    bloodFloor.Size = Vector3.new(BLOOD_POOL_SIZE, 1, BLOOD_POOL_SIZE)
+    bloodFloor.Position = humanoidRootPart.Position + Vector3.new(0, -1, 0)
+    bloodFloor.Anchored = true
+    bloodFloor.CanCollide = false
+    bloodFloor.Color = Color3.fromRGB(30, 0, 0)
+    bloodFloor.Material = Enum.Material.Ice
+    bloodFloor.Parent = workspace
+    table.insert(instancesToClean, bloodFloor)
+
+    -- 4. CAMERA SEQUENCE
+    camera.CameraType = Enum.CameraType.Scriptable
+    local head = character:WaitForChild("Head")
+    camera.CFrame = head.CFrame * CFrame.new(0, 0.5, -9) * CFrame.Angles(0, math.pi, 0)
+
+    TweenService:Create(camera, TweenInfo.new(2.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        CFrame = head.CFrame * CFrame.new(0, 0.5, -5.5) * CFrame.Angles(0, math.pi, 0)
+    }):Play()
+
+    task.delay(2.8, function()
+        local behindPos = humanoidRootPart.CFrame * CFrame.new(0, 6, 15) 
+        camera.CFrame = CFrame.new(behindPos.Position, humanoidRootPart.Position + (humanoidRootPart.CFrame.LookVector * 100))
+        
+        TweenService:Create(camera, TweenInfo.new(animLength - 2.8, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+            CFrame = camera.CFrame * CFrame.new(0, 2, 10)
+        }):Play()
+    end)
+
+    -- 5. CLEANUP
     task.delay(animLength, function()
         camera.CameraType = Enum.CameraType.Custom
         customTrack:Stop(1.5)
         
-        -- Tween Shrine Down
         if weldPart then
             TweenService:Create(weldPart, TweenInfo.new(3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
                 CFrame = humanoidRootPart.CFrame * CFrame.new(0, SHRINE_DEPTH_START, SHRINE_DISTANCE_BEHIND)
             }):Play()
         end
         
-        -- TWEEN BLOOD DOWN (Instead of disappearing)
         if bloodFloor then
             TweenService:Create(bloodFloor, TweenInfo.new(3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
                 Position = bloodFloor.Position + Vector3.new(0, -20, 0),
@@ -200,18 +193,11 @@ end
 humanoid.AnimationPlayed:Connect(function(animationTrack)
     local assetId = tonumber(animationTrack.Animation.AnimationId:match("%d+"))
     if assetId == originalSkillAnimId then
+        while not assetsLoaded do task.wait(0.1) end
         local originalLen = animationTrack.Length
         animationTrack:Stop(0)
-        
-        local success, newTrack = pcall(function()
-            return humanoid:LoadAnimation(expansionAnim)
-        end)
-        
-        if success and newTrack then
-            newTrack:Play()
-            triggerDomain(originalLen, newTrack)
-        else
-            warn("❌ [Domain Expansion]: Animation Load Error: " .. tostring(newTrack))
-        end
+        local newTrack = humanoid:LoadAnimation(expansionAnim)
+        newTrack:Play()
+        triggerDomain(originalLen, newTrack)
     end
 end)
